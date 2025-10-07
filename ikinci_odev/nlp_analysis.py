@@ -1,28 +1,39 @@
 #!/usr/bin/env python3
-import pandas as pd
-import spacy
-from collections import Counter
+import pandas as pd  # CSV dosyasını okumak ve veri analizi için
+import spacy  # NLP işlemleri için güçlü bir kütüphane
+from collections import Counter  # Frekans sayımı için
 
 nlp = spacy.load('en_core_web_sm')
 
 def extract_opinion_phrases(text):
-    """POS tagging ile opinion phrase'leri tespit et"""
-    doc = nlp(text)
+    """
+    ADJ: Adjective (sıfat) - good, bad, excellent
+    NOUN: İsim - phone, battery, service
+    PROPN: Özel isim - iPhone, Samsung
+    ADV: Adverb (zarf) - very, really, quite
+    """
+    doc = nlp(text)  # Metni spaCy ile işle (tokenize + POS tag)
     opinions = []
     
+    # Her kelimeyi (token) sırayla incele
     for i, token in enumerate(doc):
-        # Adjective + Noun kombinasyonları
+        # Sıfat + İsim
         if token.pos_ == 'ADJ' and i + 1 < len(doc) and doc[i + 1].pos_ in ['NOUN', 'PROPN']:
             opinions.append(f"{token.text} {doc[i + 1].text}".lower())
         
-        # Adverb + Adjective kombinasyonları
+        # Zarf + Sıfat
         if token.pos_ == 'ADV' and i + 1 < len(doc) and doc[i + 1].pos_ == 'ADJ':
             opinions.append(f"{token.text} {doc[i + 1].text}".lower())
     
     return opinions
 
 def extract_entities(text):
-    """NER ile entity'leri tespit et"""
+    """
+    ORG: Organization (kuruluş/marka) - Apple, Samsung, Google
+    PRODUCT: Ürün adları - iPhone, Galaxy
+    GPE: Geopolitical Entity (ülke/şehir) - Turkey, Istanbul
+    LOC: Location (konum) - Amazon Store, Mall"""
+
     doc = nlp(text)
     entities = {'products': [], 'brands': [], 'locations': []}
     
@@ -35,21 +46,18 @@ def extract_entities(text):
     return entities
 
 def extract_aspect_opinion_pairs(text):
-    """POS + Chunking ile aspect-opinion çiftlerini tespit et"""
     doc = nlp(text)
     pairs = []
     
     for chunk in doc.noun_chunks:
         aspect = chunk.text.lower().strip()
-        
-        # Yakındaki sıfatları bul
+
         for i in range(max(0, chunk.start - 2), min(len(doc), chunk.end + 2)):
             if doc[i].pos_ == 'ADJ' and not doc[i].is_stop:
                 pairs.append((aspect, doc[i].text.lower()))
     
     return pairs
 
-# Ana analiz
 df = pd.read_csv('/Users/murat/Desktop/NLP/ikinci_odev/amazon.csv')
 
 print("Amazon Product Reviews NLP Analysis")
@@ -59,7 +67,6 @@ all_opinions = []
 all_entities = {'products': [], 'brands': [], 'locations': []}
 all_pairs = []
 
-# Tüm metinleri analiz et
 for text in df['Text']:
     all_opinions.extend(extract_opinion_phrases(text))
     
@@ -69,18 +76,20 @@ for text in df['Text']:
     
     all_pairs.extend(extract_aspect_opinion_pairs(text))
 
-# Sonuçları göster
-print("\nTop Opinion Phrases:")
+# EN YAYGIN GÖRÜŞ İFADELERİ
+print("(Müşterilerin en sık kullandığı görüş ifadeleri)")
 for phrase, count in Counter(all_opinions).most_common(10):
-    print(f"  {phrase}: {count}")
+    print(f"  {phrase}: {count} kez")
 
-print("\nDetected Entities:")
+# TESPİT EDİLEN MARKALAR VE YERLER
+print("(Yorumlarda bahsedilen marka ve yer adları)")
 for entity_type, entities in all_entities.items():
-    if entities:
+    if entities:  # Eğer bu kategoride entity bulunduysa
         print(f"  {entity_type.title()}:")
         for entity, count in Counter(entities).most_common(5):
-            print(f"    {entity}: {count}")
+            print(f"    {entity}: {count} kez")
 
-print("\nAspect-Opinion Pairs:")
+# EN YAYGIN ASPECT-OPINION ÇİFTLERİ  
+print("(Hangi özellikler hakkında hangi görüşler belirtiliyor?)")
 for (aspect, opinion), count in Counter(all_pairs).most_common(10):
-    print(f"  {aspect} -> {opinion}: {count}")
+    print(f"  {aspect} -> {opinion}: {count} kez")
