@@ -1,0 +1,15 @@
+Yönergeler
+Using the amazon product reviews, analyze to produce insights.
+POS tagging to identify opinion phrases (e.g., “very good service”, “bad quality”)
+
+NER to detect product names, locations, or brands mentioned.
+
+
+
+Key NLP Components:
+
+POS + chunking for aspect/opinion detection
+
+NER for entity linking
+
+dataframe için pandas kullan
