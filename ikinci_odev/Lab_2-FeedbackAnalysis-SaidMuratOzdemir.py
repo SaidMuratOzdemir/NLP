@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import re
 from collections import Counter
 import pandas as pd
@@ -10,11 +9,15 @@ TOP_ENTITIES = 5
 TOP_PAIRS = 10
 
 def build_nlp():
+    # varsa md modeli, yoksa sm
     try:
         nlp = spacy.load("en_core_web_md")
     except Exception:
-        nlp = spacy.load("en_core_web_sm")
+        nlp = spacy.load("en_core_web_sm")  # default fallback
 
+    # EntityRuler: Domain'e özel düzeltmeler.
+    # Amaç: 'Kindle' ve 'Kindle Fire' gibi cihaz/ürünlerin LOC/GPE'ye kaymasını engellemek,
+    # 'Angry Birds' ve 'Amazon Silk' gibi ürünleri PRODUCT'a çekmek.
     ruler = nlp.add_pipe("entity_ruler", before="ner")
     ruler.add_patterns([
         {"label": "PRODUCT", "pattern": "Kindle"},
@@ -30,6 +33,10 @@ def build_nlp():
 
 nlp = build_nlp()
 
+# Post-processing kuralları:
+# - ENTITY_STOPWORDS: 'free', 'faotd' gibi büyük harfli gürültüyü (yanlış ORG/PRODUCT) elemek
+# - UPPER_EXCEPTIONS: 'US', 'UK' gibi gerçekten yer olan kısaltmaları korumak
+# - BRAND_WHITELIST / PRODUCT_WHITELIST: domain bilgisi ile doğru sınıfa zorlamak
 ENTITY_STOPWORDS = {"free", "faotd"}
 UPPER_EXCEPTIONS = {"US", "UK", "USA", "EU"}
 BRAND_WHITELIST = {"amazon", "google", "android", "pandora"}
@@ -38,31 +45,24 @@ PRODUCT_WHITELIST = {"kindle", "kindle fire", "angry birds", "amazon silk"}
 _det_pat = re.compile(r"^(the|a|an)\s+", flags=re.I)
 
 def normalize_ent(text: str) -> str:
+    # Öğrenci yorumu: 'the Kindle Fire' -> 'Kindle Fire' gibi determinersız forma getiriyorum.
     t = text.strip()
     t = _det_pat.sub("", t)
     return t
 
 def looks_fake_allcaps(text: str) -> bool:
+    # 'FREE', 'FAOTD' gibi tamamen büyük harfli ama yer adı olmayan gürültüyü ele.
     return text.isupper() and text not in UPPER_EXCEPTIONS and len(text) >= 3
 
 def is_location_context(doc: spacy.tokens.Doc, ent: spacy.tokens.Span) -> bool:
+    # Lokasyon kabulü için minimal bağlam denetimi: 'in/at/from/to X'
+    # 'on Kindle' cihaz gibi durumları lokasyon saymıyoruz.
     prev_tok = doc[ent.start - 1] if ent.start > 0 else None
     return bool(prev_tok and prev_tok.lemma_ in {"in", "at", "from", "to"})
 
-# --- Yardımcılar ---
-def find_text_column(df: pd.DataFrame) -> str:
-    if "Text" in df.columns:
-        return "Text"
-    for c in df.columns:
-        if c.lower() == "text":
-            return c
-    for c in df.columns:
-        if "text" in c.lower():
-            return c
-    raise KeyError("CSV içinde metin kolonu bulunamadı. Lütfen 'Text' adlı bir sütun ekleyin.")
-
 # --- Çıkarımlar ---
 def extract_opinion_phrases_from_doc(doc: spacy.tokens.Doc):
+    # ADJ+NOUN/PROPN ve ADV+ADJ kalıpları ile basit opinion phrase çıkarımı
     opinions = []
     for i, tok in enumerate(doc):
         if tok.pos_ == "ADJ" and i + 1 < len(doc) and doc[i + 1].pos_ in {"NOUN", "PROPN"}:
@@ -72,6 +72,7 @@ def extract_opinion_phrases_from_doc(doc: spacy.tokens.Doc):
     return opinions
 
 def extract_aspect_opinion_pairs_from_doc(doc: spacy.tokens.Doc):
+    # noun_chunk (aspect) çevresinde +/-2 token yakınında ADJ arıyorum
     pairs = []
     for chunk in doc.noun_chunks:
         aspect = chunk.text.lower().strip()
@@ -83,16 +84,19 @@ def extract_aspect_opinion_pairs_from_doc(doc: spacy.tokens.Doc):
     return pairs
 
 def extract_entities_from_doc(doc: spacy.tokens.Doc):
+    # NER sonrası domain odaklı filtreleme. Hedef: false pozitifleri azaltmak.
     entities = {"products": [], "brands": [], "locations": []}
     for ent in doc.ents:
         raw = normalize_ent(ent.text)
         low = raw.lower()
 
+        # Gürültü temizliği
         if low in ENTITY_STOPWORDS:
             continue
         if looks_fake_allcaps(raw):
             continue
 
+        # Domain whitelist
         if low in PRODUCT_WHITELIST:
             entities["products"].append(raw); continue
         if low in BRAND_WHITELIST:
@@ -108,9 +112,9 @@ def extract_entities_from_doc(doc: spacy.tokens.Doc):
     return entities
 
 def main():
+    # CSV dosyasını doğrudan oku (kolon adı kesin "Text")
     df = pd.read_csv(CSV_PATH)
-    text_col = find_text_column(df)
-    texts = df[text_col].dropna().astype(str).tolist()
+    texts = df["Text"].dropna().astype(str).tolist()
 
     print("Amazon Product Reviews NLP Analysis")
     print(f"Total reviews: {len(texts)}\n")
