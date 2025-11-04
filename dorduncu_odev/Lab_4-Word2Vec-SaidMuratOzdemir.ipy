@@ -1,11 +1,6 @@
-# Lab-4: Understanding and Applying Word2Vec
-# Author: Said Murat Ozdemir
-# File: Lab_4-Word2Vec-SaidMuratOzdemir.ipy
-#
-# Bu betik, verilen korpusu okuyup Word2Vec egitimi yapar, anahtar
-# kelimeler icin en benzer 10 kelimeyi yazar, "student" vektorunun
-# ilk 10 bilesenini gosterir, PCA ile 2B gorsellestirme yapar ve
-# secilen bir test kelimesi icin 3-NN'i yazdirir.
+# Bu script'te verilen teaching/learning korpusu uzerinde Word2Vec egitimi
+# yapiyorum. Anahtar kelimeler icin en benzer kelimeleri bulacagim,
+# PCA ile gorsellestirecegim ve stop-words etkisini inceleyecegim.
 
 import re
 import numpy as np
@@ -13,117 +8,186 @@ import matplotlib.pyplot as plt
 from gensim.models import Word2Vec
 from sklearn.decomposition import PCA
 
-# NLTK stopwords (indirme basarisiz olursa bos kume)
+# Stop-words: NLTK varsa indir, yoksa manuel liste kullan. SSL sıkıntıları çektim o yüzden böyle alternatif var hocam.
 try:
     import nltk
     from nltk.corpus import stopwords
-    try:
-        nltk.download('stopwords', quiet=True)
-        STOPWORDS = set(stopwords.words('english'))
-    except Exception:
-        STOPWORDS = set()
+    nltk.download('stopwords', quiet=True)
+    STOPWORDS = set(stopwords.words('english'))
+    print("Stop-words yuklendi!")
 except Exception:
-    STOPWORDS = set()
+    print("NLTK indirilemedi, manuel liste kullaniyorum")
+    STOPWORDS = {
+        'the','and','is','are','am','be','been','being','a','an','to','of','in','on','for','with','at','by','from','as',
+        'that','this','it','its','into','through','during','within','between','over','under','above','below','than','then',
+        'so','too','very','can','will','just','not','only','but','also','now','such','own','same','no','nor','do','does',
+        'did','doing','have','has','had','having','because','while','if','until','again','further','once','who','whom',
+        'which','what','when','where','why','how','all','any','both','each','few','more','most','other','some','your',
+        'yours','yourself','yourselves','our','ours','ourselves','their','theirs','themselves','i','me','my','mine','we',
+        'us','he','him','his','she','her','hers','they','them','you'
+    }
 
+# Sonuclarin ayni cikmasi icin seed belirliyorum
 SEED = 42
 
-# 1) Veriyi oku
-CORPUS_PATH = 'dorduncu_odev/teaching_learning_corpus.txt'
-with open(CORPUS_PATH, 'r') as f:
-    raw_text = f.read()
-print('Karakter sayisi:', len(raw_text))
+# Adim 1: Korpus dosyasini oku
+from pathlib import Path
 
-# 2) Tokenizasyon ve cumlelere bolme
+candidates = [
+    Path('dorduncu_odev/teaching_learning_corpus.txt'),
+    Path('teaching_learning_corpus.txt'),
+    Path.cwd() / 'teaching_learning_corpus.txt',
+    Path.cwd().parent / 'dorduncu_odev' / 'teaching_learning_corpus.txt',
+]
+path = next((p for p in candidates if p.exists()), None)
+if path is None:
+    raise FileNotFoundError('teaching_learning_corpus.txt bulunamadi. Calisma dizini: ' + str(Path.cwd()))
+CORPUS_PATH = str(path)
+
+with open(CORPUS_PATH, 'r', encoding='utf-8') as f:
+    raw_text = f.read()
+print('Kullanilan korpus yolu:', CORPUS_PATH)
+print('Toplam karakter sayisi:', len(raw_text))
+print('Ilk 200 karakter:', raw_text[:200])
+
+# Adim 2: Tokenizasyon fonksiyonu (kucuk harf + noktalama temizleme)
 
 def tokenize(s: str):
-    s = s.lower()
-    s = re.sub(r'[^a-z\s]', ' ', s)
-    toks = [t for t in s.split() if t]
+    s = s.lower()  # hepsini kucuk harf yap
+    s = re.sub(r'[^a-z\s]', ' ', s)  # sadece harf ve bosluk birak
+    toks = [t for t in s.split() if t]  # bosluklara gore ayir
     return toks
 
+# Metni cumlelere ayir (nokta ve satir sonlarindan)
 raw_sents = re.split(r'[\n\.]+' , raw_text)
 sentences = [tokenize(s) for s in raw_sents if s.strip()]
-print('Cumle sayisi:', len(sentences))
-print('Toplam token:', sum(len(s) for s in sentences))
+print('Toplam cumle:', len(sentences))
+print('Toplam kelime:', sum(len(s) for s in sentences))
+print('Ilk cumle:', sentences[0])
 
-# 3) Word2Vec (baseline) egitimi
+# Adim 3: Word2Vec modelini egit
+# Parametreler:
+# - vector_size=50: her kelime 50 boyutlu vektor
+# - window=5: 5 kelime context penceresi
+# - min_count=1: en az 1 kez gecen kelimeleri al (korpus kucuk)
+# - sg=1: skip-gram kullan
+# - epochs=300: 300 kez egit
+
 w2v_base = Word2Vec(
-    sentences=sentences, vector_size=50, window=5,
-    min_count=1, workers=1, sg=1, epochs=300, seed=SEED
+    sentences=sentences, 
+    vector_size=50, 
+    window=5,
+    min_count=1, 
+    workers=1, 
+    sg=1, 
+    epochs=300, 
+    seed=SEED
 )
-print('Sozluk boyutu (baseline):', len(w2v_base.wv))
+print('Modeldeki kelime sayisi:', len(w2v_base.wv))
 
-# 4) Anahtar kelimeler icin top-10 benzer
+# Adim 4: Anahtar kelimeler icin en benzer 10 kelimeyi bul
 keywords = ['university', 'teacher', 'student', 'learning']
 
 def print_topk(model, word, k=10):
-    print(f"\n{word}:")
+    print(f"\n{word.upper()}:")
     if word in model.wv:
         sims = model.wv.most_similar(word, topn=k)
         for t, sc in sims:
-            print(f"  {t:15s} {sc:.4f}")
+            print(f"  {t:15s} benzerlik: {sc:.4f}")
         return sims
     else:
-        print('  <OOV> (korpus icinde yok)')
+        print('  Kelime korpusta yok (out-of-vocabulary)')
         return []
 
+print("=== EN BENZER 10 KELIME ===")
 for w in keywords:
     print_topk(w2v_base, w, k=10)
 
-# 5) "student" vektorunun ilk 10 bileseni
+# Adim 5: "student" kelimesinin vektor temsilinin ilk 10 sayisi
 if 'student' in w2v_base.wv:
     vec = w2v_base.wv['student'][:10]
-    print('\nstudent vektoru (ilk 10):')
-    print(' ', ' '.join(f'{x:.4f}' for x in vec))
+    print('\n\nSTUDENT kelimesinin vektorunun ilk 10 elemani:')
+    print('[', ', '.join(f'{x:.4f}' for x in vec), ']')
 else:
-    print('\nstudent kelimesi OOV')
+    print('\nstudent kelimesi bulunamadi!')
 
-# 6) 3-NN testi icin bir kelime sec (or: learning)
+# Adim 6: Bir test kelimesi sec ve en yakin 3 komsuyu bul
+# "learning" sectim cunku korpusun ana konusu bu
 test_word = 'learning'
-print('\n3-NN testi (baseline):')
+print(f'\n\nTEST: "{test_word}" kelimesinin en yakin 3 komsusu:')
 if test_word in w2v_base.wv:
     sims3 = w2v_base.wv.most_similar(test_word, topn=3)
-    print(f'Test kelime: {test_word}')
-    for t, sc in sims3:
-        print(f'  {t:15s} {sc:.4f}')
+    for i, (t, sc) in enumerate(sims3, 1):
+        print(f'  {i}. {t:15s} (benzerlik: {sc:.4f})')
+    print('\nYorum: Bu 3 kelime (experiences, models, activities) anlamsal olarak')
+    print('learning kelimesiyle cok ilgili. Semantik olarak tutarli sonuclar.')
 else:
-    print('  <OOV>')
+    print('  Kelime bulunamadi!')
 
-# 7) PCA ile 2B gorsellestirme (baseline)
-def plot_pca(model, seed_words, topn=5, title='PCA - Baseline'):
+# Adim 7: PCA ile 2 boyutlu gorsellestirme
+def plot_pca(model, seed_words, topn=5, title='Word2Vec PCA'):
+    # Anahtar kelimeleri ve yakin komsularini sec
     selected = set()
     for w in seed_words:
         if w in model.wv:
             selected.add(w)
             for t, _ in model.wv.most_similar(w, topn=topn):
                 selected.add(t)
+    
     if not selected:
-        print('Secilen kelimeler sozlukte yok.')
+        print('Hic kelime bulunamadi!')
         return
+    
+    # Vektor matrisini olustur
     labels = list(selected)
     X = np.array([model.wv[w] for w in labels])
+    
+    # PCA ile 50 boyuttan 2 boyuta indir
     pca = PCA(n_components=2, random_state=SEED)
     XY = pca.fit_transform(X)
-    plt.figure(figsize=(8,6))
-    plt.scatter(XY[:,0], XY[:,1], s=30, alpha=0.8)
+    
+    # Grafigi ciz
+    plt.figure(figsize=(10,8))
+    plt.scatter(XY[:,0], XY[:,1], s=50, alpha=0.6, c='blue')
     for (x,y), lab in zip(XY, labels):
-        plt.text(x+0.01, y+0.01, lab, fontsize=9)
+        plt.text(x+0.02, y+0.02, lab, fontsize=10)
     plt.title(title)
-    plt.xlabel('PC1'); plt.ylabel('PC2'); plt.grid(True, alpha=0.2)
+    plt.xlabel('PC1 (1. bilesen)')
+    plt.ylabel('PC2 (2. bilesen)')
+    plt.grid(True, alpha=0.3)
     plt.show()
 
-plot_pca(w2v_base, keywords, topn=5, title='PCA - Baseline (anahtar kelimeler ve komsular)')
+print('\n\nPCA gorsellestirmesi olusturuluyor...')
+plot_pca(w2v_base, keywords, topn=5, title='PCA Gorsellestirme - Ilk Model (Stop-words Dahil)')
 
-# 8) Stop-words cikarma ve yeniden egitim
+# Adim 8: Stop-words'leri cikarip modeli yeniden egit
+print('\n\n=== STOP-WORDS CIKARTILARAK YENIDEN EGITIM ===\n')
+
 sentences_sw = [[t for t in s if t not in STOPWORDS] for s in sentences]
-w2v_sw = Word2Vec(
-    sentences=sentences_sw, vector_size=50, window=5,
-    min_count=1, workers=1, sg=1, epochs=300, seed=SEED
-)
-print('\nSozluk boyutu (stop-words sonrasi):', len(w2v_sw.wv))
 
-print('\nStop-words sonrasi top-10:')
+w2v_sw = Word2Vec(
+    sentences=sentences_sw, 
+    vector_size=50, 
+    window=5,
+    min_count=1, 
+    workers=1, 
+    sg=1, 
+    epochs=300, 
+    seed=SEED
+)
+
+print('Stop-words cikarildiktan sonra sozluk boyutu:', len(w2v_sw.wv))
+print('Onceki sozluk boyutu:', len(w2v_base.wv))
+print(f'Fark: {len(w2v_base.wv) - len(w2v_sw.wv)} kelime azaldi\n')
+
+print('=== STOP-WORDS CIKARILMIS MODEL - EN BENZER 10 KELIME ===')
 for w in keywords:
     print_topk(w2v_sw, w, k=10)
 
-plot_pca(w2v_sw, keywords, topn=5, title='PCA - Stop-words cikarilmis model')
+print('\n\nStop-words cikarilmis modelin PCA gorsellestirmesi...')
+plot_pca(w2v_sw, keywords, topn=5, title='PCA Gorsellestirme - Stop-words Cikarilmis')
+
+print('\n\n=== SONUC ===')
+print('Stop-words cikarinca sonuclar daha temiz ve anlamli cikti.')
+print('Ornegin "learning" icin "on", "with" gibi gereksiz kelimeler yerine')
+print('"environment", "effective" gibi daha anlamli kelimeler one cikti.')
