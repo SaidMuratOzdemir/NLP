@@ -1,0 +1,28 @@
+Lab-4: Understanding and Applying Word2Vec
+Son teslim zamanı bugün 12:30
+•
+Bugün şu saatte kapanıyor: 12:30
+Yönergeler
+Understand how Word2Vec learns semantic similarity, apply a tutorial, and evaluate results.
+Expected Steps
+Read or identify example sentences (dataset attached)
+Tokenization
+Train the Word2Vec model
+Print the top 10 most similar words for keywords (e.g., "university", "teacher", "student", "learning")
+Delivery
+Top 10 similar words for each keyword
+Vector for the word "student" (first 10 numbers)
+Using PCA or another methods visualize word vectors in 2-D
+Analysis
+Choose a test word. Do the 3 nearest neighbors make semantic sense? Explain.
+Discuss the role of corpus size (3-5 sentences). You may try other corpuses.
+Consider eliminating stop words and retry
+Possible to use Gensim Word2Vec model as well (optinal). 
+Dispatch
+Submit jupyter notebook with comments
+Lab_4-Word2Vec-FirstLastName.ipy
+
+Başvuru malzemeleri
+
+teaching_learning_corpus.txt
+

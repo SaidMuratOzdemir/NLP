@@ -1,0 +1,129 @@
+# Lab-4: Understanding and Applying Word2Vec
+# Author: Said Murat Ozdemir
+# File: Lab_4-Word2Vec-SaidMuratOzdemir.ipy
+#
+# Bu betik, verilen korpusu okuyup Word2Vec egitimi yapar, anahtar
+# kelimeler icin en benzer 10 kelimeyi yazar, "student" vektorunun
+# ilk 10 bilesenini gosterir, PCA ile 2B gorsellestirme yapar ve
+# secilen bir test kelimesi icin 3-NN'i yazdirir.
+
+import re
+import numpy as np
+import matplotlib.pyplot as plt
+from gensim.models import Word2Vec
+from sklearn.decomposition import PCA
+
+# NLTK stopwords (indirme basarisiz olursa bos kume)
+try:
+    import nltk
+    from nltk.corpus import stopwords
+    try:
+        nltk.download('stopwords', quiet=True)
+        STOPWORDS = set(stopwords.words('english'))
+    except Exception:
+        STOPWORDS = set()
+except Exception:
+    STOPWORDS = set()
+
+SEED = 42
+
+# 1) Veriyi oku
+CORPUS_PATH = 'dorduncu_odev/teaching_learning_corpus.txt'
+with open(CORPUS_PATH, 'r') as f:
+    raw_text = f.read()
+print('Karakter sayisi:', len(raw_text))
+
+# 2) Tokenizasyon ve cumlelere bolme
+
+def tokenize(s: str):
+    s = s.lower()
+    s = re.sub(r'[^a-z\s]', ' ', s)
+    toks = [t for t in s.split() if t]
+    return toks
+
+raw_sents = re.split(r'[\n\.]+' , raw_text)
+sentences = [tokenize(s) for s in raw_sents if s.strip()]
+print('Cumle sayisi:', len(sentences))
+print('Toplam token:', sum(len(s) for s in sentences))
+
+# 3) Word2Vec (baseline) egitimi
+w2v_base = Word2Vec(
+    sentences=sentences, vector_size=50, window=5,
+    min_count=1, workers=1, sg=1, epochs=300, seed=SEED
+)
+print('Sozluk boyutu (baseline):', len(w2v_base.wv))
+
+# 4) Anahtar kelimeler icin top-10 benzer
+keywords = ['university', 'teacher', 'student', 'learning']
+
+def print_topk(model, word, k=10):
+    print(f"\n{word}:")
+    if word in model.wv:
+        sims = model.wv.most_similar(word, topn=k)
+        for t, sc in sims:
+            print(f"  {t:15s} {sc:.4f}")
+        return sims
+    else:
+        print('  <OOV> (korpus icinde yok)')
+        return []
+
+for w in keywords:
+    print_topk(w2v_base, w, k=10)
+
+# 5) "student" vektorunun ilk 10 bileseni
+if 'student' in w2v_base.wv:
+    vec = w2v_base.wv['student'][:10]
+    print('\nstudent vektoru (ilk 10):')
+    print(' ', ' '.join(f'{x:.4f}' for x in vec))
+else:
+    print('\nstudent kelimesi OOV')
+
+# 6) 3-NN testi icin bir kelime sec (or: learning)
+test_word = 'learning'
+print('\n3-NN testi (baseline):')
+if test_word in w2v_base.wv:
+    sims3 = w2v_base.wv.most_similar(test_word, topn=3)
+    print(f'Test kelime: {test_word}')
+    for t, sc in sims3:
+        print(f'  {t:15s} {sc:.4f}')
+else:
+    print('  <OOV>')
+
+# 7) PCA ile 2B gorsellestirme (baseline)
+def plot_pca(model, seed_words, topn=5, title='PCA - Baseline'):
+    selected = set()
+    for w in seed_words:
+        if w in model.wv:
+            selected.add(w)
+            for t, _ in model.wv.most_similar(w, topn=topn):
+                selected.add(t)
+    if not selected:
+        print('Secilen kelimeler sozlukte yok.')
+        return
+    labels = list(selected)
+    X = np.array([model.wv[w] for w in labels])
+    pca = PCA(n_components=2, random_state=SEED)
+    XY = pca.fit_transform(X)
+    plt.figure(figsize=(8,6))
+    plt.scatter(XY[:,0], XY[:,1], s=30, alpha=0.8)
+    for (x,y), lab in zip(XY, labels):
+        plt.text(x+0.01, y+0.01, lab, fontsize=9)
+    plt.title(title)
+    plt.xlabel('PC1'); plt.ylabel('PC2'); plt.grid(True, alpha=0.2)
+    plt.show()
+
+plot_pca(w2v_base, keywords, topn=5, title='PCA - Baseline (anahtar kelimeler ve komsular)')
+
+# 8) Stop-words cikarma ve yeniden egitim
+sentences_sw = [[t for t in s if t not in STOPWORDS] for s in sentences]
+w2v_sw = Word2Vec(
+    sentences=sentences_sw, vector_size=50, window=5,
+    min_count=1, workers=1, sg=1, epochs=300, seed=SEED
+)
+print('\nSozluk boyutu (stop-words sonrasi):', len(w2v_sw.wv))
+
+print('\nStop-words sonrasi top-10:')
+for w in keywords:
+    print_topk(w2v_sw, w, k=10)
+
+plot_pca(w2v_sw, keywords, topn=5, title='PCA - Stop-words cikarilmis model')
