@@ -1,0 +1,14 @@
+Topic modelling
+Son teslim zamanı bugün 12:00
+•
+Bugün şu saatte kapanıyor: 12:30
+Yönergeler
+In this homework you are given a document where each row belongs to one of the topics among various. See if you could locate what these topics might be.  
+
+What to submit is your ipynb file with lots of notes on it. 
+
+Looking for authentic content. Not AI generated. 
+
+Please report what you notice and what worked. Where you had issues. 
+
+Lab_5-TopicModelling-FirstLastName.ipynb
